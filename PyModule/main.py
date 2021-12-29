@@ -3,6 +3,10 @@ from dotenv import load_dotenv
 import logging
 import json
 import traceback
+import finger_main as fig
+
+fig_session = None
+upper_client = None
 
 
 def eval_input(input_str, is_json=True):
@@ -30,6 +34,10 @@ def main():
                         datefmt=os.getenv("PYEXECUTOR_LOG_DATE_FORMAT")
                         )
     logging.debug("Bootstrapping")
+    global fig_session, upper_client
+
+    if os.getenv("FINGERPRINT_ENABLE") == "1":
+        fig_session = fig.connect()
 
     if os.getenv("PYEXECUTOR_UPPER_ENABLE") == "1":
         import upper_client
