@@ -1,0 +1,6 @@
+#ifndef NATIVEMODULES_LIBRARY_H
+#define NATIVEMODULES_LIBRARY_H
+
+void hello();
+
+#endif //NATIVEMODULES_LIBRARY_H
