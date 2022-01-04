@@ -3,17 +3,39 @@ import time
 
 import cv2
 import logging
+import imutils
 
-camera = cv2.VideoCapture(0)
+logging.basicConfig()
+logging.getLogger().setLevel(logging.DEBUG)
+log = logging.getLogger('Face Detector')
 
+log.info("Loading haarcascade")
 face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 face_cascade.load('./blobs/haarcascade_frontalface_default.xml')
-eye_cascade = cv2.CascadeClassifier('haarcascade_eye.xml')
-eye_cascade.load('./blobs/haarcascade_eye.xml')
 
+log.info("Opening camera")
+camera = cv2.VideoCapture(0)
+camera.set(cv2.CAP_PROP_FPS, 10)
+
+log.info("Testing camera")
+ret, frame = camera.read()
+height, width, channels = frame.shape
+log.info("Video shape is %d x %d , %d channels" % (width, height, channels))
+
+isCamScaleFit = False
+if width / height - 3/4 < 1e-6:
+    isCamScaleFit = True
+    log.info("Video shape fits 3:4")
+else:
+    isCamScaleFit = False
+    log.info("Video shape NOT fits 3:4 cutting")
+
+
+log.info("Face detector started")
 while True:
     # 调用摄像头，获取图像
     ret, frame = camera.read()
+    frame = imutils.resize(frame, height=640, width=480)
     if ret:
         # 转换为灰度图
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -28,15 +50,11 @@ while True:
             f = cv2.resize(gray[y:y + h, x:x + w], (200, 200))
             cv2.imshow('face', f)
             fE = cv2.equalizeHist(f)
-            cv2.imshow('face', fE)
+            cv2.imshow('faceE', fE)
 
             face_area = img[y:y + h, x:x + w]
-            eyes = eye_cascade.detectMultiScale(face_area, 1.1, 5)
-            for (ex, ey, ew, eh) in eyes:
-                # 画出人眼框，绿色，画笔宽度为1
-                cv2.rectangle(face_area, (ex, ey), (ex + ew, ey + eh), (0, 255, 0), 1)
 
             # 展示图片
             cv2.imshow('camera0', frame)
 
-    cv2.waitKey(1)
+    cv2.waitKey(100)
