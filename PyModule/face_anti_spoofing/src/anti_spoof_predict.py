@@ -13,9 +13,9 @@ import numpy as np
 import torch.nn.functional as F
 
 
-from src.model_lib.MiniFASNet import MiniFASNetV1, MiniFASNetV2,MiniFASNetV1SE,MiniFASNetV2SE
-from src.data_io import transform as trans
-from src.utility import get_kernel, parse_model_name
+from . model_lib.MiniFASNet import MiniFASNetV1, MiniFASNetV2,MiniFASNetV1SE,MiniFASNetV2SE
+from . data_io import transform as trans
+from . utility import get_kernel, parse_model_name
 
 MODEL_MAPPING = {
     'MiniFASNetV1': MiniFASNetV1,
@@ -27,8 +27,9 @@ MODEL_MAPPING = {
 
 class Detection:
     def __init__(self):
-        caffemodel = "./resources/detection_model/Widerface-RetinaFace.caffemodel"
-        deploy = "./resources/detection_model/deploy.prototxt"
+        dir = os.path.dirname(__file__)
+        caffemodel = dir + "/../resources/detection_model/Widerface-RetinaFace.caffemodel"
+        deploy = dir + "/../resources/detection_model/deploy.prototxt"
         self.detector = cv2.dnn.readNetFromCaffe(deploy, caffemodel)
         self.detector_confidence = 0.6
 
