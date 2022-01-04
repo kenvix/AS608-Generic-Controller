@@ -24,9 +24,13 @@ while count < 100:
             # 获取人脸，并转换为200,200的统一格式
             # 原始数据返回的是正方形
             f = cv2.resize(gray[y:y + h, x:x + w], (200, 200))
+            f = cv2.equalizeHist(f)
+
+
 
             # 保存图片
             cv2.imwrite('./data/faces/0/%s.pgm' % str(count), f)
+            print("Write: %d" % count)
             count += 1
 
             # 展示图片

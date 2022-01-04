@@ -24,11 +24,13 @@ def showConfidence(imgPath, recognizer, images, labels):
     predict_image = cv2.imread(imgPath, cv2.IMREAD_GRAYSCALE)
     # 预测并打印结果
     labels, confidence = recognizer.predict(predict_image)
-    print("label=", labels)
-    print("conficence=", confidence)
+    return labels, confidence
 
-
-imgPath = "./data/faces/out.pgm"
 
 recognizer = cv2.face.EigenFaceRecognizer_create()
-showConfidence(imgPath, recognizer, images, labels)
+with os.scandir("./data/faces/test") as imgPaths:
+    for entry in imgPaths:
+        imgPath = entry.path
+        print("file=", imgPath)
+        lab, cfd = showConfidence(imgPath, recognizer, images, labels)
+        print("label=%d conficence=%f" % (lab, cfd))
