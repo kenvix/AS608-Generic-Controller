@@ -5,6 +5,7 @@ import cv2
 import logging
 import numpy as np
 import imutils
+import shutil
 
 from face_anti_spoofing.src.anti_spoof_predict import AntiSpoofPredict
 from face_anti_spoofing.src.generate_patches import CropImage
@@ -26,9 +27,18 @@ class FaceDetector:
         self.isCamScaleFit = None
         self.camera = None
         self.face_cascade = None
+        self.should_stop_detect = True
+        self.should_stop_add_face = True
         self.model_dir = "./face_anti_spoofing/resources/anti_spoof_models"
+        self.face_dir = "./data/faces"
+        self.capture_num_each_face = 15
+        self.capture_min_x = 95
+        self.capture_min_y = 110
 
     def load(self):
+        if os.path.isdir(self.face_dir) is False:
+            os.mkdir(self.face_dir)
+
         log.info("Loading haarcascade")
         self.face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
         self.face_cascade.load('./blobs/haarcascade_frontalface_default.xml')
@@ -94,7 +104,6 @@ class FaceDetector:
             img = self.image_cropper.crop(**param)
             prediction += self.model_test.predict(img, os.path.join(self.model_dir, model_name))
 
-
         # draw result of prediction
         label = np.argmax(prediction)
         value = prediction[0][label] / 2
@@ -112,11 +121,89 @@ class FaceDetector:
             color, 1)
         return label, value, (image_bbox[0], image_bbox[1]), (image_bbox[2], image_bbox[3])
 
+    def stop_detect(self):
+        self.should_stop_detect = True
+
+    def stop_add_new_face(self):
+        self.should_stop_add_face = True
+
+    def start_add_new_face(self, tag, overwrite=True):
+        log.info("Capturing started")
+        self.should_stop_add_face = False
+        face_dir = self.face_dir + "/" + tag + "/"
+        if os.path.isdir(face_dir):
+            if overwrite:
+                shutil.rmtree(face_dir)
+            else:
+                raise FileExistsError(face_dir)
+
+        os.mkdir(face_dir)
+
+        i = 0
+        while i < self.capture_num_each_face:
+            if self.should_stop_add_face is True:
+                shutil.rmtree(face_dir)
+                return
+
+            face_area_resized = None
+            ret, frame = self.capture_camera()
+
+            if ret:
+                # 转换为灰度图
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+                # 调用人脸检测器检测
+                faces = self.face_cascade.detectMultiScale(gray, 1.3, 5)
+                # 绘制检测出的所有人脸
+                face_num = 0
+                w = 0
+                h = 0
+                for (x, y, w, h) in faces:
+                    face_area = frame[y:y + h, x:x + w]
+                    face_area_resized = frame[max(int(y - h * 0.35), 0):min(int(y + h * 1.35), self.height),
+                                        max(int(x - w * 0.25), 0):min(int(x + w * 1.25), self.width)]
+                    face_num = face_num + 1
+
+                # Only one face allowed
+                if face_num == 1:
+                    if w < self.capture_min_x or h < self.capture_min_y:
+                        cv2.putText(frame, "Face too small, min %dx%d got %dx%d" % (
+                        self.capture_min_x, self.capture_min_y, w, h),
+                                    (0, 25),
+                                    cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 10, 255), 2)
+                    else:
+                        cv2.putText(frame, "Added face %d/%d  %dx%d" % (i, self.capture_num_each_face, w, h),
+                                    (0, 25),
+                                    cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 255, 10), 2)
+
+                        logging.info("Writing new face " + face_dir + '%d.jpg' % i)
+                        cv2.imwrite(face_dir + '%d.jpg' % i, face_area_resized, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                        i = i + 1
+                elif face_num == 0:
+                    cv2.putText(frame, "No faces",
+                                (0, 25),
+                                cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (0, 0, 0), 2)
+                else:
+                    cv2.putText(frame, "Too many faces: %d" % face_num,
+                                (0, 25),
+                                cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (0, 0, 0), 2)
+
+                cv2.imshow(self.imtitle, frame)
+
+                if face_area_resized is not None:
+                    cv2.imshow(self.imtitle2, face_area_resized)
+
+                cv2.waitKey(1000)
+            else:
+                log.error("Camera capture failed: %d" % ret)
+
     def start_detect(self):
         log.info("Face detector started")
-        while True:
+        self.should_stop_detect = False
+        while self.should_stop_detect is False:
             # 调用摄像头，获取图像
             start = time.time()
+            face_area_resized = None
             ret, frame = self.capture_camera()
             frame = imutils.resize(frame, height=640, width=480)
             if ret:
@@ -136,7 +223,9 @@ class FaceDetector:
                     # fE = cv2.equalizeHist(f)
                     # cv2.imshow('faceE', fE)
 
-                    face_area = img[y:y + h, x:x + w]
+                    face_area = frame[y:y + h, x:x + w]
+                    face_area_resized = frame[max(int(y - h * 0.2), 0):min(int(y + h * 1.2), self.height),
+                                        max(int(x - w * 0.2), 0):min(int(x + w * 1.2), self.width)]
                     face_num = face_num + 1
 
                 # Only one face allowed
@@ -168,6 +257,9 @@ class FaceDetector:
                             (0, 50),
                             cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (0, 255, 255), 2)
                 cv2.imshow(self.imtitle, frame)
+
+                if face_area_resized is not None:
+                    cv2.imshow(self.imtitle2, face_area_resized)
             else:
                 log.error("Camera capture failed: %d" % ret)
 
@@ -182,7 +274,8 @@ def main():
 
     d = FaceDetector()
     d.load()
-    d.start_detect()
+    d.start_add_new_face("Kenvix Zure")
+    # d.start_detect()
 
 
 if __name__ == '__main__':

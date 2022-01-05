@@ -1,4 +1,4 @@
-PyModule/data/faces/**
+PyModule/data/faces*/**
 
 ### Java template
 # Compiled class file
