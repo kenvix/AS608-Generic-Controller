@@ -3,6 +3,8 @@ import time
 
 import cv2
 import logging
+
+import face_recognition
 import numpy as np
 import imutils
 import shutil
@@ -16,6 +18,7 @@ log = logging.getLogger('Face Detector')
 
 class FaceDetector:
     def __init__(self):
+        self.face_tolerance = 0.35
         self.fontSize = 0.8
         self.image_cropper = None
         self.model_test = None
@@ -31,9 +34,11 @@ class FaceDetector:
         self.should_stop_add_face = True
         self.model_dir = "./face_anti_spoofing/resources/anti_spoof_models"
         self.face_dir = "./data/faces"
-        self.capture_num_each_face = 15
+        self.capture_num_each_face = 4
         self.capture_min_x = 95
         self.capture_min_y = 110
+        self.known_face_encodings = []
+        self.known_face_names = []
 
     def load(self):
         if os.path.isdir(self.face_dir) is False:
@@ -63,6 +68,16 @@ class FaceDetector:
         else:
             self.isCamScaleFit = False
             log.info("Video shape NOT fits 3:4 cropping")
+
+    def reload_known_faces(self):
+        self.known_face_encodings = []
+        self.known_face_names = []
+        for faceName in os.listdir(self.face_dir):
+            for facePhoto in os.listdir(self.face_dir + "/" + faceName):
+                self.known_face_names.append(faceName)
+                image = face_recognition.load_image_file(self.face_dir + "/" + faceName + "/" + facePhoto)
+                self.known_face_encodings.append(face_recognition.face_encodings(image)[0])
+                logging.debug("Loaded face %s in %s" % (faceName, facePhoto))
 
     @staticmethod
     def check_image(image):
@@ -168,7 +183,7 @@ class FaceDetector:
                 if face_num == 1:
                     if w < self.capture_min_x or h < self.capture_min_y:
                         cv2.putText(frame, "Face too small, min %dx%d got %dx%d" % (
-                        self.capture_min_x, self.capture_min_y, w, h),
+                            self.capture_min_x, self.capture_min_y, w, h),
                                     (0, 25),
                                     cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 10, 255), 2)
                     else:
@@ -230,6 +245,7 @@ class FaceDetector:
 
                 # Only one face allowed
                 if face_num == 1:
+                    # Liveness detection
                     fit_img = self.image_fit_liveness(frame)
                     liveness_label, liveness_score, face_pos, face_size = self.detect_liveness(fit_img)
 
@@ -237,6 +253,31 @@ class FaceDetector:
                         cv2.putText(frame, "Face is %s (%f)" % ("Real", liveness_score),
                                     (0, 25),
                                     cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 255, 10), 2)
+
+                        # Face recognition
+                        # Convert the image from BGR color (which OpenCV uses) to RGB color (which face_recognition uses)
+                        rgb_small_frame = face_area_resized[:, :, ::-1]
+                        # Find all the faces and face encodings in the current frame of video
+                        face_encodings = face_recognition.face_encodings(rgb_small_frame)
+                        if len(face_encodings) >= 1:
+                            face_encoding = face_encodings[0]
+
+                            matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding, tolerance=self.face_tolerance)
+
+                            if True in matches:
+                                # Or instead, use the known face with the smallest distance to the new face
+                                face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
+                                best_match_index = np.argmin(face_distances)
+                                name = self.known_face_names[best_match_index]
+                                name_distance = np.amin(face_distances)
+                                cv2.putText(frame, "N: %s (%f)" % (name, name_distance),
+                                            (0, 75),
+                                            cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 255, 10), 2)
+                            else:
+                                cv2.putText(frame, "Face unmatched",
+                                            (0, 75),
+                                            cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 10, 255), 2)
+
                     else:
                         cv2.putText(frame, "Face is %s (%f)" % ("FAKE", liveness_score),
                                     (0, 25),
@@ -263,19 +304,20 @@ class FaceDetector:
             else:
                 log.error("Camera capture failed: %d" % ret)
 
-            cv2.waitKey(100)
+            cv2.waitKey(10)
 
 
 def main():
     logging.basicConfig()
-    logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger().setLevel(logging.DEBUG)
 
     os.chdir(os.path.dirname(__file__))
 
     d = FaceDetector()
+    d.reload_known_faces()
     d.load()
-    d.start_add_new_face("Kenvix Zure")
-    # d.start_detect()
+    # d.start_add_new_face("Kenvix Zure")
+    d.start_detect()
 
 
 if __name__ == '__main__':
