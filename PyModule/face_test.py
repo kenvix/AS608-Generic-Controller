@@ -15,6 +15,7 @@ log = logging.getLogger('Face Detector')
 
 class FaceDetector:
     def __init__(self):
+        self.fontSize = 0.8
         self.image_cropper = None
         self.model_test = None
         self.imtitle = "Camera"
@@ -91,9 +92,8 @@ class FaceDetector:
             if scale is None:
                 param["crop"] = False
             img = self.image_cropper.crop(**param)
-            start = time.time()
             prediction += self.model_test.predict(img, os.path.join(self.model_dir, model_name))
-            test_speed += time.time() - start
+
 
         # draw result of prediction
         label = np.argmax(prediction)
@@ -116,6 +116,7 @@ class FaceDetector:
         log.info("Face detector started")
         while True:
             # 调用摄像头，获取图像
+            start = time.time()
             ret, frame = self.capture_camera()
             frame = imutils.resize(frame, height=640, width=480)
             if ret:
@@ -142,10 +143,30 @@ class FaceDetector:
                 if face_num == 1:
                     fit_img = self.image_fit_liveness(frame)
                     liveness_label, liveness_score, face_pos, face_size = self.detect_liveness(fit_img)
-                else:
 
+                    if liveness_label == 1:
+                        cv2.putText(frame, "Face is %s (%f)" % ("Real", liveness_score),
+                                    (0, 25),
+                                    cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 255, 10), 2)
+                    else:
+                        cv2.putText(frame, "Face is %s (%f)" % ("FAKE", liveness_score),
+                                    (0, 25),
+                                    cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 10, 255), 2)
+
+                elif face_num == 0:
+                    cv2.putText(frame, "No faces",
+                                (0, 25),
+                                cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (0, 0, 0), 2)
+                else:
+                    cv2.putText(frame, "Too many faces: %d" % face_num,
+                                (0, 25),
+                                cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (0, 0, 0), 2)
 
                 # 展示图片
+                test_speed = time.time() - start
+                cv2.putText(frame, "Cost %fs" % test_speed,
+                            (0, 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (0, 255, 255), 2)
                 cv2.imshow(self.imtitle, frame)
             else:
                 log.error("Camera capture failed: %d" % ret)
@@ -155,7 +176,7 @@ class FaceDetector:
 
 def main():
     logging.basicConfig()
-    logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(logging.INFO)
 
     os.chdir(os.path.dirname(__file__))
 
