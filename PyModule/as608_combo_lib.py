@@ -69,6 +69,13 @@ def fig_print_log(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
+class FingerException(Exception):
+    def __init__(self, message, status):
+        super().__init__(message, status)
+        self.message = message
+        self.status = status
+
+
 class Operation:
     """UART based fingerprint sensor."""
 
@@ -276,9 +283,12 @@ class Operation:
         self._uart.close()
 
     def finger_search(self):
-        """Asks the sensor to search for a matching fingerprint starting at
+        """
+        Asks the sensor to search for a matching fingerprint starting at
 		slot 1. Stores the location and confidence in self.finger_id
-		and self.confidence. Returns the packet error code or OK success"""
+		and self.confidence. Returns the packet error code or OK success
+		"""
+
         self.read_sysparam()
         capacity = self.library_size
         self._send_packet(
@@ -290,9 +300,11 @@ class Operation:
         return r[0]
 
     def compare_templates(self):
-        """Compares two fingerprint templates in char buffers 1 and 2. Stores the confidence score
+        """
+        Compares two fingerprint templates in char buffers 1 and 2. Stores the confidence score
 		in self.finger_id and self.confidence. Returns the packet error code or
-		OK success"""
+		OK success
+		"""
         self._send_packet([_COMPARE])
         r = self._get_packet(14)
         # self.confidence = struct.unpack(">H", bytes(r[1:4]))
@@ -300,13 +312,15 @@ class Operation:
         return r[0]
 
     def set_led(self, color=1, mode=3, speed=0x80, cycles=0):
-        """LED function -- only for R503 Sensor.
+        """
+        LED function -- only for R503 Sensor.
 		Parameters: See User Manual for full details
 		color: 1=red, 2=blue, 3=purple
 		mode: 1-breathe, 2-flash, 3-on, 4-off, 5-fade_on, 6-fade-off
 		speed: animation speed 0-255
 		cycles: numbe of time to repeat 0=infinite or 1-255
-		Returns the packet error code or success"""
+		Returns the packet error code or success
+		"""
         self._send_packet([_SETAURA, mode, speed, color, cycles])
         return self._get_packet(12)[0]
 
@@ -492,14 +506,14 @@ def connect_serial_session(comName):
         ser = serial.Serial(comName, baudrate=115200, timeout=1)
     except Exception as e:
         fig_print_log(e)
-        return False
+        raise e
     else:
         # check if the correct fingerprint device connected
         try:
             session = Operation(ser)
         except Exception as e:
             fig_print_log(e)
-            return False
+            raise e
         return session  # this session will be use all over the operation
 
 
@@ -531,52 +545,56 @@ def get_device_size(session):
 # def find_next_location(session):
 # 	return min(list(set(list(range(0, get_device_size(session) + 1))).difference(get_templates_list(session))))
 
-def enroll_finger_to_device(session, as608_lib):
+def enroll_finger_to_device(session, as608_lib, imgNum=2, onNext=lambda: fig_print_log("Place same finger again...", end="", flush=True)):
     """Take a 2 finger images and template it, then store in 'location'"""
 
     # get the location number that from low to high in order and no skiping
     location = min(list(set(list(range(0, get_device_size(session) + 1))).difference(get_templates_list(session))))
 
-    for fingerimg in range(1, 3):
-        if fingerimg == 1:
-            fig_print_log("Place finger on sensor...", end="", flush=True)
-        else:
-            fig_print_log("Place same finger again...", end="", flush=True)
-
-        while True:
-            i = session.get_image()
-            if i == as608_lib.OK:
-                fig_print_log("Image taken")
-                break
-            if i == as608_lib.NOFINGER:
-                fig_print_log(".", end="", flush=True)
-            elif i == as608_lib.IMAGEFAIL:
-                fig_print_log("Imaging error")
-                return False
+    finger_img_i = 1
+    while finger_img_i <= imgNum:
+        try:
+            if finger_img_i == 1:
+                fig_print_log("Place finger on sensor...", end="", flush=True)
             else:
-                fig_print_log("Other error")
-                return False
+                onNext()
 
-        fig_print_log("Templating...", end="", flush=True)
-        i = session.image_2_tz(fingerimg)
-        if i == as608_lib.OK:
-            fig_print_log("Templated")
-        else:
-            if i == as608_lib.IMAGEMESS:
-                fig_print_log("Image too messy")
-            elif i == as608_lib.FEATUREFAIL:
-                fig_print_log("Could not identify features")
-            elif i == as608_lib.INVALIDIMAGE:
-                fig_print_log("Image invalid")
-            else:
-                fig_print_log("Other error")
-            return False
-
-        if fingerimg == 1:
-            fig_print_log("Remove finger")
-            time.sleep(1)
-            while i != as608_lib.NOFINGER:
+            while True:
                 i = session.get_image()
+                if i == as608_lib.OK:
+                    fig_print_log("Image taken")
+                    break
+                if i == as608_lib.NOFINGER:
+                    fig_print_log(".", end="", flush=True)
+                elif i == as608_lib.IMAGEFAIL:
+                    raise FingerException("Imaging error", 11)
+                else:
+                    raise FingerException("Other error", 10)
+
+            fig_print_log("Templating...", end="", flush=True)
+            i = session.image_2_tz(finger_img_i)
+            if i == as608_lib.OK:
+                fig_print_log("Templated")
+            else:
+                if i == as608_lib.IMAGEMESS:
+                    raise FingerException("Image too messy", 15)
+                elif i == as608_lib.FEATUREFAIL:
+                    raise FingerException("Could not identify features", 14)
+                elif i == as608_lib.INVALIDIMAGE:
+                    raise FingerException("Image invalid", 13)
+                else:
+                    raise FingerException("Other error at Templating", 12)
+
+            if finger_img_i < imgNum:
+                onNext()
+                time.sleep(1)
+                i = session.get_image()
+                while i != as608_lib.NOFINGER:
+                    i = session.get_image()
+
+            finger_img_i = finger_img_i + 1
+        except FingerException as e:
+            fig_print_log(e)
 
     fig_print_log("Creating model...", end="", flush=True)
     i = session.create_model()
@@ -584,10 +602,9 @@ def enroll_finger_to_device(session, as608_lib):
         fig_print_log("Created")
     else:
         if i == as608_lib.ENROLLMISMATCH:
-            fig_print_log("Prints did not match")
+            raise FingerException("Prints did not match", 17)
         else:
-            fig_print_log("Other error")
-        return False
+            raise FingerException("Other error", 16)
 
     fig_print_log("Storing model #%d..." % location, end="", flush=True)
     i = session.store_model(location)
@@ -595,12 +612,11 @@ def enroll_finger_to_device(session, as608_lib):
         fig_print_log("Stored")
     else:
         if i == as608_lib.BADLOCATION:
-            fig_print_log("Bad storage location")
+            raise FingerException("Bad storage location", 2)
         elif i == as608_lib.FLASHERR:
-            fig_print_log("Flash storage error")
+            raise FingerException("Flash storage error", 1)
         else:
-            fig_print_log("Other error")
-        return False
+            raise FingerException("Other error", 0)
 
     return True
 
@@ -721,8 +737,10 @@ def fingerprint_check_one_file(session, as608_lib, save_location, file_name):
 
 
 def fingerprint_check_all_file(session, as608_lib, save_location):
-    """Compares a new fingerprint template to an existing template stored in a file
-	This is useful when templates are stored centrally (i.e. in a database)"""
+    """
+    Compares a new fingerprint template to an existing template stored in a file
+	This is useful when templates are stored centrally (i.e. in a database)
+	"""
     file_check_res = False
     fig_print_log("Waiting for finger print...")
     while session.get_image() != as608_lib.OK:

@@ -3,10 +3,13 @@ from dotenv import load_dotenv
 import logging
 import json
 import traceback
-import finger_main as fig
+import asyncio
+
+from finger_main import FingerMain
 
 fig_session = None
 upper_client = None
+fig: FingerMain
 
 
 def eval_input(input_str, is_json=True):
@@ -26,7 +29,7 @@ def eval_input(input_str, is_json=True):
         }, 'data': {}}, sort_keys=True, indent=4, separators=(',', ': '))
 
 
-def main():
+async def main():
     print("=== LabLockerV7 Fingerprint Serive by Kenvix ===")
     load_dotenv()
     logging.basicConfig(level=int(os.getenv("PYEXECUTOR_LOG_LEVEL")),
@@ -34,10 +37,14 @@ def main():
                         datefmt=os.getenv("PYEXECUTOR_LOG_DATE_FORMAT")
                         )
     logging.debug("Bootstrapping")
-    global fig_session, upper_client
+    global fig_session, upper_client, fig
 
     if os.getenv("FINGERPRINT_ENABLE") == "1":
-        fig_session = fig.connect()
+        fig = FingerMain(device=os.getenv("FINGERPRINT_DEVICE"), save_path=os.getenv("FINGERPRINT_SAVE_PATH"))
+        fig_session = fig.get_session()
+        fig.set_security_level(os.getenv("FINGERPRINT_SECURITY_LEVEL"))
+        fig.add_fingerprint()
+        fig.start_loop_async()
 
     if os.getenv("PYEXECUTOR_UPPER_ENABLE") == "1":
         import upper_client
@@ -50,4 +57,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    loop = asyncio.get_event_loop()
+    res = loop.run_until_complete(asyncio.wait([main()]))
+    loop.close()
