@@ -18,7 +18,8 @@ log = logging.getLogger('Face Detector')
 
 class FaceDetector:
     def __init__(self):
-        self.face_tolerance = 0.35
+        self.face_tolerance = 0.31
+        self.face_tolerance_adding = 0.33
         self.fontSize = 0.8
         self.image_cropper = None
         self.model_test = None
@@ -34,9 +35,10 @@ class FaceDetector:
         self.should_stop_add_face = True
         self.model_dir = "./face_anti_spoofing/resources/anti_spoof_models"
         self.face_dir = "./data/faces"
-        self.capture_num_each_face = 4
+        self.capture_num_each_face = 10
         self.capture_min_x = 95
         self.capture_min_y = 110
+        self.face_show_distance = False
         self.known_face_encodings = []
         self.known_face_names = []
 
@@ -162,6 +164,7 @@ class FaceDetector:
 
             face_area_resized = None
             ret, frame = self.capture_camera()
+            new_face_encodings = []
 
             if ret:
                 # 转换为灰度图
@@ -187,13 +190,28 @@ class FaceDetector:
                                     (0, 25),
                                     cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 10, 255), 2)
                     else:
-                        cv2.putText(frame, "Added face %d/%d  %dx%d" % (i, self.capture_num_each_face, w, h),
-                                    (0, 25),
-                                    cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 255, 10), 2)
+                        # Face recognition for adding
+                        # Convert the image from BGR color (which OpenCV uses) to RGB color (which face_recognition uses)
+                        rgb_small_frame = face_area_resized[:, :, ::-1]
+                        # Find all the faces and face encodings in the current frame of video
+                        face_encodings = face_recognition.face_encodings(rgb_small_frame)
+                        if len(face_encodings) >= 1:
+                            face_encoding = face_encodings[0]
 
-                        logging.info("Writing new face " + face_dir + '%d.jpg' % i)
-                        cv2.imwrite(face_dir + '%d.jpg' % i, face_area_resized, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-                        i = i + 1
+                            matches = face_recognition.compare_faces(new_face_encodings, face_encoding, tolerance=self.face_tolerance_adding)
+                            if True not in matches:
+                                cv2.putText(frame, "Added face %d/%d  %dx%d" % (i, self.capture_num_each_face, w, h),
+                                            (0, 25),
+                                            cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 255, 10), 2)
+                                new_face_encodings.append(face_encoding)
+
+                                logging.info("Writing new face " + face_dir + '%d.jpg' % i)
+                                cv2.imwrite(face_dir + '%d.webp' % i, face_area_resized, [int(cv2.IMWRITE_WEBP_QUALITY), 90])
+                                i = i + 1
+                            else:
+                                cv2.putText(frame, "Face already exists",
+                                            (0, 75),
+                                            cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 10, 255), 2)
                 elif face_num == 0:
                     cv2.putText(frame, "No faces",
                                 (0, 25),
@@ -263,16 +281,23 @@ class FaceDetector:
                             face_encoding = face_encodings[0]
 
                             matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding, tolerance=self.face_tolerance)
-
+                            name = None
                             if True in matches:
-                                # Or instead, use the known face with the smallest distance to the new face
-                                face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
-                                best_match_index = np.argmin(face_distances)
-                                name = self.known_face_names[best_match_index]
-                                name_distance = np.amin(face_distances)
-                                cv2.putText(frame, "N: %s (%f)" % (name, name_distance),
-                                            (0, 75),
-                                            cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 255, 10), 2)
+                                if self.face_show_distance:
+                                    # Or instead, use the known face with the smallest distance to the new face
+                                    face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
+                                    best_match_index = np.argmin(face_distances)
+                                    name = self.known_face_names[best_match_index]
+                                    name_distance = np.amin(face_distances)
+                                    cv2.putText(frame, "%s (%d, %f)" % (name, best_match_index, name_distance),
+                                                (0, 75),
+                                                cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 255, 10), 2)
+                                else:
+                                    index = matches.index(True)
+                                    name = self.known_face_names[index]
+                                    cv2.putText(frame, "%s (%d)" % (name, index),
+                                                (0, 75),
+                                                cv2.FONT_HERSHEY_SIMPLEX, self.fontSize, (10, 255, 10), 2)
                             else:
                                 cv2.putText(frame, "Face unmatched",
                                             (0, 75),
@@ -316,8 +341,8 @@ def main():
     d = FaceDetector()
     d.reload_known_faces()
     d.load()
-    # d.start_add_new_face("Kenvix Zure")
-    d.start_detect()
+    d.start_add_new_face("Kenvix Zure")
+    # d.start_detect()
 
 
 if __name__ == '__main__':
